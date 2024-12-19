@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Biomarker Term Analyzer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+        
+        textarea {
+            width: 100%;
+            height: 200px;
+            margin: 10px 0;
+            padding: 10px;
+            font-size: 14px;
+            font-family: Arial, sans-serif;
+        }
+
+        #highlightedText {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            line-height: 1.5;
+        }
+
+        .analysis-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .term-header {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .sentence {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-left: 4px solid #666;
+        }
+
+        .evaluation {
+            margin: 5px 0;
+            padding: 5px;
+        }
+
+        .confidence {
+            font-style: italic;
+            color: #666;
+        }
+
+        .highlight-predictive {
+            background-color: #ffeb3b;
+            padding: 2px;
+        }
+
+        .highlight-prognostic {
+            background-color: #81c784;
+            padding: 2px;
+        }
+
+        .highlight-surrogate {
+            background-color: #90caf9;
+            padding: 2px;
+        }
+
+        .correct-usage {
+            border-left-color: #4CAF50;
+        }
+
+        .incorrect-usage {
+            border-left-color: #f44336;
+        }
+
+        .section-header {
+            font-size: 16px;
+            font-weight: bold;
+            margin: 20px 0 10px 0;
+            padding-bottom: 5px;
+            border-bottom: 2px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+    <h1>Biomarker Term Analyzer</h1>
+    <p>Paste your abstract text below for analysis:</p>
+    
+    <textarea id="abstractInput" placeholder="Paste your abstract here..."></textarea>
+    
+    <div class="section-header">Full Text with Highlighted Terms</div>
+    <div id="highlightedText"></div>
+    
+    <div class="section-header">Term Usage Analysis</div>
+    <div id="analysis"></div>
+
+    <script>
+        function extractSentences(text) {
+            // Split text into sentences (handles common abbreviations)
+            const sentenceRegex = /[^.!?]+[.!?]+/g;
+            return text.match(sentenceRegex) || [];
+        }
+
+        function getSentenceContext(sentences, currentIndex, windowSize = 2) {
+            const start = Math.max(0, currentIndex - windowSize);
+            const end = Math.min(sentences.length, currentIndex + windowSize + 1);
+            return {
+                before: sentences.slice(start, currentIndex),
+                current: sentences[currentIndex],
+                after: sentences.slice(currentIndex + 1, end)
+            };
+        }
+
+        function evaluateSurrogate(sentence, context) {
+            const allText = [...context.before, sentence, ...context.after].join(' ').toLowerCase();
+            
+            const trialLevelAnalysis = /trial[-\s]level|meta[-\s]analysis/.test(allText);
+            const qualifyingTerms = /may|might|could|potential|possibly/.test(allText);
+            const individualLevel = /individual/.test(allText);
+            const outcomeTerms = /(\bOS\b|PFS|survival|outcome)/.test(allText);
+            const validationMention = /validat(e|ion|ing)|correlat(e|ion|ing)/.test(allText);
+            
+            // Check previous context for study design mentions
+            const hasStudyContext = context.before.some(s => 
+                /study|trial|analysis|method/.test(s.toLowerCase())
+            );
+
+            if (trialLevelAnalysis && outcomeTerms) {
+                return {
+                    correct: true,
+                    confidence: 'high',
+                    reason: 'Proper mention of trial-level analysis and outcome measures in context'
+                };
+            } else if (qualifyingTerms && outcomeTerms && (validationMention || hasStudyContext)) {
+                return {
+                    correct: true,
+                    confidence: 'medium',
+                    reason: 'Appropriate use of qualifying terms with validation context'
+                };
+            } else if (individualLevel) {
+                return {
+                    correct: false,
+                    confidence: 'high',
+                    reason: 'Individual-level analysis mentioned - should use "prognostic" instead'
+                };
+            }
+            return {
+                correct: false,
+                confidence: 'medium',
+                reason: 'No clear validation methodology or qualifying terms in context'
+            };
+        }
+
+        function evaluatePrognostic(sentence, context) {
+            const allText = [...context.before, sentence, ...context.after].join(' ').toLowerCase();
+            
+            const therapyMention = /treatment|therapy|intervention/.test(allText);
+            const outcomeTerms = /outcome|survival|prognosis|risk/.test(allText);
+            const naturalHistoryTerms = /natural[\s-]history|disease[\s-]course|baseline/.test(allText);
+            
+            // Check if previous context establishes observational nature
+            const hasObservationalContext = context.before.some(s => 
+                /observational|cohort|natural|baseline/.test(s.toLowerCase())
+            );
+
+            if ((!therapyMention && outcomeTerms) || naturalHistoryTerms) {
+                return {
+                    correct: true,
+                    confidence: hasObservationalContext ? 'high' : 'medium',
+                    reason: 'Correctly describes outcome independent of therapy with proper context'
+                };
+            } else if (therapyMention) {
+                return {
+                    correct: false,
+                    confidence: 'medium',
+                    reason: 'Context suggests therapy response - might be predictive instead'
+                };
+            }
+            return {
+                correct: true,
+                confidence: 'low',
+                reason: 'Context suggests natural history but lacks specific outcome terms'
+            };
+        }
+
+        function evaluatePredictive(sentence, context) {
+            const allText = [...context.before, sentence, ...context.after].join(' ').toLowerCase();
+            
+            const therapyMention = /treatment|therapy|intervention|response/.test(allText);
+            const benefitTerms = /benefit|response|efficacy|sensitivity|resistance/.test(allText);
+            const interventionalTerms = /randomized|assigned|treated|administered/.test(allText);
+            
+            // Check if previous context establishes intervention
+            const hasInterventionContext = context.before.some(s => 
+                /treatment|therapy|drug|intervention/.test(s.toLowerCase())
+            );
+
+            if (therapyMention && benefitTerms && (interventionalTerms || hasInterventionContext)) {
+                return {
+                    correct: true,
+                    confidence: 'high',
+                    reason: 'Properly describes therapy benefit prediction with clear intervention context'
+                };
+            } else if (therapyMention || hasInterventionContext) {
+                return {
+                    correct: true,
+                    confidence: 'medium',
+                    reason: 'Mentions therapy but benefit assessment is unclear from context'
+                };
+            }
+            return {
+                correct: false,
+                confidence: 'medium',
+                reason: 'No clear connection to therapy benefit in surrounding context'
+            };
+        }
+
+        function analyzeSentence(sentence, term, context) {
+            let evaluation;
+            switch(term) {
+                case 'surrogate':
+                    evaluation = evaluateSurrogate(sentence, context);
+                    break;
+                case 'prognostic':
+                    evaluation = evaluatePrognostic(sentence, context);
+                    break;
+                case 'predictive':
+                    evaluation = evaluatePredictive(sentence, context);
+                    break;
+            }
+            return evaluation;
+        }
+
+        function highlightTerm(sentence, term) {
+            const regex = new RegExp(`(${term})`, 'gi');
+            return sentence.replace(regex, `<span class="highlight-${term}">$1</span>`);
+        }
+
+        function highlightInputText(text) {
+            const terms = {
+                'predictive': 'highlight-predictive',
+                'prognostic': 'highlight-prognostic',
+                'surrogate': 'highlight-surrogate'
+            };
+            
+            let highlightedText = text;
+            
+            // Replace newlines with <br> tags for proper display
+            highlightedText = highlightedText.replace(/\n/g, '<br>');
+            
+            // Highlight each term
+            for (const [term, className] of Object.entries(terms)) {
+                const regex = new RegExp(`(${term})`, 'gi');
+                highlightedText = highlightedText.replace(regex, 
+                    `<span class="${className}">$1</span>`);
+            }
+            
+            return highlightedText;
+        }
+
+        function updateAnalysis() {
+            const text = document.getElementById('abstractInput').value;
+            
+            // Update the highlighted text section
+            document.getElementById('highlightedText').innerHTML = highlightInputText(text);
+            
+            // Existing analysis code...
+            const sentences = extractSentences(text);
+            const terms = ['predictive', 'prognostic', 'surrogate'];
+            let analysisHtml = '';
+
+            terms.forEach(term => {
+                const termSentences = sentences.filter(sentence => 
+                    sentence.toLowerCase().includes(term.toLowerCase()));
+
+                if (termSentences.length > 0) {
+                    analysisHtml += `
+                        <div class="analysis-section">
+                            <div class="term-header">Analysis for "${term}"</div>
+                    `;
+
+                    const uniqueSentences = [...new Set(termSentences)];
+                    uniqueSentences.forEach(sentence => {
+                        const sentenceIndex = sentences.indexOf(sentence);
+                        const context = getSentenceContext(sentences, sentenceIndex);
+                        const evaluation = analyzeSentence(sentence, term, context);
+                        const usageClass = evaluation.correct ? 'correct-usage' : 'incorrect-usage';
+                        
+                        analysisHtml += `
+                            <div class="sentence ${usageClass}">
+                                <div>${highlightTerm(sentence.trim(), term)}</div>
+                                <div class="evaluation">
+                                    <strong>Assessment:</strong> ${evaluation.correct ? 'Correct usage' : 'Incorrect usage'}
+                                    <br>
+                                    <strong>Reason:</strong> ${evaluation.reason}
+                                    <br>
+                                    <span class="confidence">Confidence: ${evaluation.confidence}</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+
+                    analysisHtml += '</div>';
+                }
+            });
+
+            document.getElementById('analysis').innerHTML = analysisHtml || 'No relevant terms found.';
+        }
+
+        // Add event listener for real-time analysis
+        document.getElementById('abstractInput').addEventListener('input', updateAnalysis);
+    </script>
+</body>
+</html>

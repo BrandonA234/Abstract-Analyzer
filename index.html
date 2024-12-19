@@ -90,6 +90,25 @@
             padding-bottom: 5px;
             border-bottom: 2px solid #ddd;
         }
+
+        #analysisSection {
+            display: none;  /* Initially hidden */
+        }
+
+        .analyze-button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 20px 0;
+        }
+
+        .analyze-button:hover {
+            background-color: #45a049;
+        }
     </style>
 </head>
 <body>
@@ -101,8 +120,12 @@
     <div class="section-header">Full Text with Highlighted Terms</div>
     <div id="highlightedText"></div>
     
-    <div class="section-header">Term Usage Analysis</div>
-    <div id="analysis"></div>
+    <button id="analyzeButton" class="analyze-button">Analyze Term Usage</button>
+
+    <div id="analysisSection">
+        <div class="section-header">Term Usage Analysis</div>
+        <div id="analysis"></div>
+    </div>
 
     <script>
         function extractSentences(text) {
@@ -319,6 +342,18 @@
 
         // Add event listener for real-time analysis
         document.getElementById('abstractInput').addEventListener('input', updateAnalysis);
+
+        // Add this new event listener at the bottom of your script
+        document.getElementById('analyzeButton').addEventListener('click', function() {
+            const analysisSection = document.getElementById('analysisSection');
+            if (analysisSection.style.display === 'none' || !analysisSection.style.display) {
+                analysisSection.style.display = 'block';
+                this.textContent = 'Hide Analysis';
+            } else {
+                analysisSection.style.display = 'none';
+                this.textContent = 'Analyze Term Usage';
+            }
+        });
     </script>
 </body>
 </html>
